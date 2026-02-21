@@ -1,0 +1,80 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai_zakat_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_zakat
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ai_zakat_backend
+    ports:
+      - "6789:6789"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/ai_zakat}
+      - SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-in-production}
+      - DEBUG=${DEBUG:-true}
+      - HOST=0.0.0.0
+      - PORT=6789
+      - AI_API_URL=${AI_API_URL}
+      - AI_API_KEY=${AI_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.5-397b-a17b-fp8-thinking}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-qwen3-vl-embedding-8b}
+      - ASR_MODEL=${ASR_MODEL:-qwen3-asr-1.7b}
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 6789 --reload
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ai_zakat_frontend
+    ports:
+      - "7890:7890"
+    environment:
+      - VITE_API_URL=${VITE_API_URL:-http://localhost:6789}
+    env_file:
+      - .env
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0 --port 7890
+
+  # ChromaDB (Vector Store)
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: ai_zakat_chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+
+volumes:
+  postgres_data:
+  uploads:
+  chroma_data:
